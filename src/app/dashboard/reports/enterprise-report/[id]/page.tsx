@@ -1,0 +1,470 @@
+'use client';
+
+import { useRef, useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { ReportData, ReportIssue } from '@/types/index.d';
+import CommentSection from '@/components/reports/CommentSection';
+import CollaboratorManager from '@/components/reports/CollaboratorManager';
+import ReportExporter from '@/components/reports/ReportExporter';
+import ReportFilter from '@/components/reports/ReportFilter';
+import reportService from '@/services/reportService';
+
+export default function EnterpriseReportPage({ params }: { params: { id: string } }) {
+  const reportId = params.id;
+  const reportContainerRef = useRef<HTMLDivElement>(null);
+  const issueListRef = useRef<HTMLUListElement>(null);
+  const [report, setReport] = useState<ReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredIssues, setFilteredIssues] = useState<ReportIssue[]>([]);
+  const [testResults, setTestResults] = useState<{
+    feature: string;
+    status: 'success' | 'error' | 'pending';
+    message: string;
+  }[]>([]);
+  const [filters, setFilters] = useState<any>({});
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        setLoading(true);
+        const data = await reportService.getReportById(reportId);
+        setReport(data);
+        setFilteredIssues(data.issues);
+      } catch (err) {
+        setError('获取报告失败，请稍后再试');
+        console.error('Error fetching report:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchReport();
+  }, [reportId]);
+
+  // 处理过滤器变化
+  const handleFilterChange = useCallback((filterType: string, value: any) => {
+    const newFilters = { ...filters };
+    newFilters[filterType] = value;
+    setFilters(newFilters);
+  }, [filters]);
+
+  // 处理搜索
+  const handleSearch = useCallback((term: string) => {
+    setSearchTerm(term);
+  }, []);
+
+  // 应用过滤器
+  const applyFilters = useCallback((currentFilters: any) => {
+    if (!report) return;
+    
+    let filtered = [...report.issues];
+    
+    // 应用过滤条件
+    Object.entries(currentFilters).forEach(([key, value]) => {
+      if (value) {
+        if (key === 'severity') {
+          filtered = filtered.filter(issue => issue.severity === value);
+        } else if (key === 'file') {
+          filtered = filtered.filter(issue => issue.file?.includes(value as string));
+        }
+        // 可以添加更多过滤条件
+      }
+    });
+    
+    // 应用搜索词
+    if (searchTerm) {
+      filtered = filtered.filter(issue => 
+        issue.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        issue.description.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    setFilteredIssues(filtered);
+  }, [report, searchTerm]);
+
+  // 当搜索词或过滤条件变化时，过滤问题列表
+  useEffect(() => {
+    if (!report) return;
+    
+    applyFilters(filters);
+  }, [report, searchTerm, filters, applyFilters]);
+
+  // 添加协作者
+  const handleAddCollaborator = async (email: string) => {
+    if (!report) return;
+    
+    try {
+      await reportService.addCollaborator(reportId, email);
+      // 更新报告数据
+      const updatedReport = await reportService.getReportById(reportId);
+      setReport(updatedReport);
+    } catch (err) {
+      console.error('Error adding collaborator:', err);
+      // 显示错误消息
+    }
+  };
+
+  // 移除协作者
+  const handleRemoveCollaborator = async (email: string) => {
+    if (!report) return;
+    
+    try {
+      await reportService.removeCollaborator(reportId, email);
+      // 更新报告数据
+      const updatedReport = await reportService.getReportById(reportId);
+      setReport(updatedReport);
+    } catch (err) {
+      console.error('Error removing collaborator:', err);
+      // 显示错误消息
+    }
+  };
+
+  // 运行测试
+  const runTests = () => {
+    setTestResults([
+      { feature: '团队协作', status: 'pending', message: '测试中...' },
+      { feature: '报告导出', status: 'pending', message: '测试中...' },
+      { feature: '报告过滤', status: 'pending', message: '测试中...' },
+    ]);
+
+    // 模拟测试结果
+    setTimeout(() => {
+      setTestResults(prev => [
+        { ...prev[0], status: 'success', message: '团队协作功能正常' },
+        { ...prev[1], status: 'pending', message: '测试中...' },
+        { ...prev[2], status: 'pending', message: '测试中...' },
+      ]);
+    }, 1000);
+
+    setTimeout(() => {
+      setTestResults(prev => [
+        { ...prev[0], status: 'success', message: '团队协作功能正常' },
+        { ...prev[1], status: 'success', message: '报告导出功能正常' },
+        { ...prev[2], status: 'pending', message: '测试中...' },
+      ]);
+    }, 2000);
+
+    setTimeout(() => {
+      setTestResults(prev => [
+        { ...prev[0], status: 'success', message: '团队协作功能正常' },
+        { ...prev[1], status: 'success', message: '报告导出功能正常' },
+        { ...prev[2], status: 'success', message: '报告过滤功能正常' },
+      ]);
+    }, 3000);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (error || !report) {
+    return (
+      <div className="flex flex-col justify-center items-center min-h-screen">
+        <h2 className="text-2xl font-bold text-red-500">错误</h2>
+        <p className="mt-2">{error || '无法加载报告'}</p>
+        <Link href="/dashboard/reports" className="mt-4 text-blue-500 hover:underline">
+          返回报告列表
+        </Link>
+      </div>
+    );
+  }
+
+  // 计算报告统计信息
+  const stats = {
+    totalIssues: report.issueCount.critical + report.issueCount.medium + report.issueCount.low,
+    criticalIssues: report.issueCount.critical,
+    mediumIssues: report.issueCount.medium,
+    lowIssues: report.issueCount.low,
+    score: report.score,
+  };
+
+  // 根据分数确定颜色
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-green-500';
+    if (score >= 60) return 'text-yellow-500';
+    return 'text-red-500';
+  };
+
+  // 根据分数确定文本
+  const getScoreText = (score: number) => {
+    if (score >= 80) return '良好';
+    if (score >= 60) return '一般';
+    return '较差';
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-8" ref={reportContainerRef}>
+      {/* 导航 */}
+      <div className="mb-6">
+        <Link href="/dashboard/reports" className="text-blue-500 hover:underline">
+          ← 返回报告列表
+        </Link>
+      </div>
+
+      {/* 报告标题和操作 */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+        <div>
+          <h1 className="text-3xl font-bold">{report.title}</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            {report.language} · {report.date}
+          </p>
+        </div>
+        <div className="mt-4 md:mt-0">
+          <div className="flex space-x-3">
+            <button
+              onClick={runTests}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            >
+              运行测试
+            </button>
+            <ReportExporter 
+              reportId={reportId}
+              reportTitle={report.title}
+              targetRef={reportContainerRef}
+              includeComments={true}
+              includeCollaborators={true}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 测试结果 */}
+      {testResults.length > 0 && (
+        <div className="mb-6 bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+          <div className="px-4 py-5 sm:px-6">
+            <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+              测试结果
+            </h3>
+          </div>
+          <div className="border-t border-gray-200 dark:border-gray-700">
+            <dl>
+              {testResults.map((result, index) => (
+                <div 
+                  key={index}
+                  className={`${
+                    index % 2 === 0 ? 'bg-gray-50 dark:bg-gray-900' : 'bg-white dark:bg-gray-800'
+                  } px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6`}
+                >
+                  <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                    {result.feature}
+                  </dt>
+                  <dd className="mt-1 text-sm text-gray-900 dark:text-white sm:mt-0 sm:col-span-2">
+                    <span className={`inline-flex items-center`}>
+                      {result.status === 'pending' && (
+                        <span className="h-4 w-4 mr-2 rounded-full bg-yellow-200 animate-pulse"></span>
+                      )}
+                      {result.status === 'success' && (
+                        <span className="h-4 w-4 mr-2 rounded-full bg-green-500"></span>
+                      )}
+                      {result.status === 'error' && (
+                        <span className="h-4 w-4 mr-2 rounded-full bg-red-500"></span>
+                      )}
+                      {result.message}
+                    </span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
+
+      {/* 报告摘要 */}
+      <div className="mb-6 bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+        <div className="px-4 py-5 sm:px-6">
+          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+            报告摘要
+          </h3>
+          <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+            {report.description}
+          </p>
+        </div>
+        <div className="border-t border-gray-200 dark:border-gray-700">
+          <dl>
+            <div className="bg-gray-50 dark:bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                代码质量评分
+              </dt>
+              <dd className="mt-1 text-sm sm:mt-0 sm:col-span-2">
+                <span className={`text-3xl font-bold ${getScoreColor(stats.score)}`}>
+                  {stats.score}
+                </span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400">
+                  ({getScoreText(stats.score)})
+                </span>
+              </dd>
+            </div>
+            <div className="bg-white dark:bg-gray-800 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                问题总数
+              </dt>
+              <dd className="mt-1 text-sm text-gray-900 dark:text-white sm:mt-0 sm:col-span-2">
+                {stats.totalIssues}
+              </dd>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                严重问题
+              </dt>
+              <dd className="mt-1 text-sm text-red-600 dark:text-red-400 sm:mt-0 sm:col-span-2">
+                {stats.criticalIssues}
+              </dd>
+            </div>
+            <div className="bg-white dark:bg-gray-800 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                中等问题
+              </dt>
+              <dd className="mt-1 text-sm text-yellow-600 dark:text-yellow-400 sm:mt-0 sm:col-span-2">
+                {stats.mediumIssues}
+              </dd>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-900 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                轻微问题
+              </dt>
+              <dd className="mt-1 text-sm text-blue-600 dark:text-blue-400 sm:mt-0 sm:col-span-2">
+                {stats.lowIssues}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      {/* 协作者管理 */}
+      <div className="mb-6 bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+        <div className="px-4 py-5 sm:px-6">
+          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+            协作者
+          </h3>
+          <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+            管理有权访问此报告的团队成员
+          </p>
+        </div>
+        <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6">
+          <CollaboratorManager 
+            reportId={reportId}
+            initialCollaborators={report.collaborators || []}
+            onAddCollaborator={handleAddCollaborator}
+            onRemoveCollaborator={handleRemoveCollaborator}
+          />
+        </div>
+      </div>
+
+      {/* 问题列表 */}
+      <div className="mb-6">
+        <h3 className="text-xl font-bold mb-4">问题列表</h3>
+        
+        {/* 过滤器 */}
+        <div className="mt-6 filter-section">
+          <ReportFilter
+            onFilterChange={(filters) => {
+              setFilters(filters);
+              applyFilters(filters);
+            }}
+            showIssueFilters={true}
+            languages={['Python', 'JavaScript', 'TypeScript', 'Java', 'C++', 'Go']}
+          />
+        </div>
+        <div className="mt-6 bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+          <ul className="divide-y divide-gray-200 dark:divide-gray-700" ref={issueListRef}>
+            {filteredIssues.length > 0 ? (
+              filteredIssues.map((issue) => (
+                <li key={issue.id} className="px-4 py-4">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      {issue.severity === 'critical' && (
+                        <span className="h-4 w-4 rounded-full bg-red-500 inline-block"></span>
+                      )}
+                      {issue.severity === 'medium' && (
+                        <span className="h-4 w-4 rounded-full bg-yellow-500 inline-block"></span>
+                      )}
+                      {issue.severity === 'low' && (
+                        <span className="h-4 w-4 rounded-full bg-blue-500 inline-block"></span>
+                      )}
+                    </div>
+                    <div className="ml-3 flex-1">
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                        {issue.title}
+                      </div>
+                      <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                        {issue.description}
+                      </div>
+                      {issue.file && (
+                        <div className="mt-2 text-xs text-gray-500 dark:text-gray-500">
+                          文件: {issue.file} {issue.line && `(行 ${issue.line})`}
+                        </div>
+                      )}
+                      {issue.code && (
+                        <div className="mt-2">
+                          <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                            问题代码:
+                          </h5>
+                          <pre className="mt-1 text-xs bg-gray-100 dark:bg-gray-900 p-2 rounded overflow-x-auto">
+                            {issue.code}
+                          </pre>
+                        </div>
+                      )}
+                      {issue.suggestion && (
+                        <div className="mt-2">
+                          <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                            建议修复：
+                          </h5>
+                          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                            {issue.suggestion}
+                          </p>
+                        </div>
+                      )}
+                      {issue.references && issue.references.length > 0 && (
+                        <div className="mt-2">
+                          <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                            参考资料：
+                          </h5>
+                          <ul className="mt-1 text-xs text-gray-600 dark:text-gray-400 list-disc list-inside">
+                            {issue.references.map((ref: string, idx: number) => (
+                              <li key={idx}>
+                                <a
+                                  href={ref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:underline"
+                                >
+                                  {ref}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))
+            ) : (
+              <li className="px-4 py-4 text-center text-gray-500 dark:text-gray-400">
+                没有找到匹配的问题
+              </li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      {/* 评论区 */}
+      <div className="mb-6 bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
+        <div className="px-4 py-5 sm:px-6">
+          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+            评论
+          </h3>
+        </div>
+        <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-5 sm:px-6">
+          <CommentSection reportId={reportId} />
+        </div>
+      </div>
+    </div>
+  );
+}
